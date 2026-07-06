@@ -1,0 +1,53 @@
+# coturn config template. Rendered to turnserver.conf by entrypoint.sh via
+# envsubst, since the coturn image has no native env-var interpolation.
+
+listening-port=3478
+tls-listening-port=443
+
+# The dedicated second IP is required because Caddy already owns 443 on the
+# primary IP for HTTPS. TURN-over-TLS needs its own IP:443 to be reachable
+# from behind DPI that blocks/throttles everything except port 443.
+listening-ip=${TURN_SECOND_IP}
+relay-ip=${TURN_SECOND_IP}
+external-ip=${TURN_SECOND_IP}
+
+min-port=${TURN_MIN_PORT}
+max-port=${TURN_MAX_PORT}
+
+# Real, CA-signed certificate — Iranian DPI can flag self-signed certs or
+# missing/mismatched SNI on port 443 as a proxy/VPN signal.
+cert=/certs/fullchain.pem
+pkey=/certs/privkey.pem
+
+use-auth-secret
+static-auth-secret=${TURN_SHARED_SECRET}
+realm=${TURN_REALM}
+
+# Security hardening
+no-multicast-peers
+no-cli
+fingerprint
+no-loopback-peers
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.0.0.0-192.0.0.255
+denied-peer-ip=192.0.2.0-192.0.2.255
+denied-peer-ip=192.88.99.0-192.88.99.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=198.18.0.0-198.19.255.255
+denied-peer-ip=198.51.100.0-198.51.100.255
+denied-peer-ip=203.0.113.0-203.0.113.255
+denied-peer-ip=224.0.0.0-255.255.255.255
+
+# Quotas sized for ~2 concurrent users, generous headroom for reconnects.
+total-quota=20
+user-quota=10
+max-bps=1000000
+
+no-stdout-log
+log-file=stdout
+simple-log
