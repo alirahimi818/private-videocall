@@ -2,8 +2,10 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { createRoom } from '../composables/api.js';
+import { useI18n, localePath } from '../i18n/index.js';
 
 const router = useRouter();
+const { locale, dir, t } = useI18n();
 const isCreating = ref(false);
 const error = ref('');
 
@@ -12,9 +14,9 @@ async function startCall() {
   error.value = '';
   try {
     const { roomId } = await createRoom();
-    router.push(`/call/${roomId}`);
+    router.push(localePath(`/call/${roomId}`, locale.value));
   } catch (err) {
-    error.value = 'Could not create a call. Try again.';
+    error.value = t('createError');
   } finally {
     isCreating.value = false;
   }
@@ -22,11 +24,24 @@ async function startCall() {
 </script>
 
 <template>
-  <main class="home">
-    <h1>Private Video Call</h1>
-    <p>Create a link and share it with the other person. Nobody else needs it.</p>
+  <main class="home" :dir="dir">
+    <router-link class="lang-switch" :to="locale === 'fa' ? '/' : '/fa'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="2" y1="12" x2="22" y2="12" />
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </svg>
+      {{ t('switchLanguage') }}
+    </router-link>
+
+    <h1>{{ t('appTitle') }}</h1>
+    <p>{{ t('tagline') }}</p>
     <button class="primary" :disabled="isCreating" @click="startCall">
-      {{ isCreating ? 'Creating…' : 'Start a call' }}
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7" />
+        <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+      </svg>
+      {{ isCreating ? t('creating') : t('startCall') }}
     </button>
     <p v-if="error" class="error">{{ error }}</p>
   </main>
@@ -34,6 +49,7 @@ async function startCall() {
 
 <style scoped>
 .home {
+  position: relative;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -44,7 +60,28 @@ async function startCall() {
   text-align: center;
 }
 
+.lang-switch {
+  position: absolute;
+  top: 1rem;
+  inset-inline-end: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: inherit;
+  text-decoration: none;
+  font-size: 0.9rem;
+  opacity: 0.8;
+}
+
+.lang-switch svg {
+  width: 18px;
+  height: 18px;
+}
+
 .primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.9rem 2rem;
   font-size: 1.1rem;
   border-radius: 0.6rem;
@@ -52,6 +89,11 @@ async function startCall() {
   background: #2563eb;
   color: white;
   cursor: pointer;
+}
+
+.primary svg {
+  width: 20px;
+  height: 20px;
 }
 
 .primary:disabled {

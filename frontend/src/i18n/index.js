@@ -1,0 +1,25 @@
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { en } from './en.js';
+import { fa } from './fa.js';
+
+const dictionaries = { en, fa };
+
+export function useI18n() {
+  const route = useRoute();
+  const locale = computed(() => route.meta.locale ?? 'en');
+  const dir = computed(() => (locale.value === 'fa' ? 'rtl' : 'ltr'));
+
+  function t(key) {
+    return dictionaries[locale.value]?.[key] ?? dictionaries.en[key] ?? key;
+  }
+
+  return { locale, dir, t };
+}
+
+// Prefixes a path with /fa when building a link for the Persian locale, so
+// links created from the Persian home page stay in Persian for whoever opens
+// them (e.g. /call/xxx -> /fa/call/xxx).
+export function localePath(path, locale) {
+  return locale === 'fa' ? `/fa${path}` : path;
+}

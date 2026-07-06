@@ -1,29 +1,26 @@
 <script setup>
 import { ref, watch, onMounted } from 'vue';
 import { useCall } from '../composables/useCall.js';
-import { useForceRelay } from '../composables/useForceRelay.js';
-import DebugOverlay from '../components/DebugOverlay.vue';
+import { useI18n } from '../i18n/index.js';
 
 const props = defineProps({ uuid: { type: String, required: true } });
 
-const forceRelay = useForceRelay();
-const showDebug = ref(false);
+const { dir, t } = useI18n();
 const localVideo = ref(null);
 const remoteVideo = ref(null);
+const justCopied = ref(false);
 
 const {
   localStream,
   remoteStream,
   peerStatus,
-  connectionState,
-  stats,
   isMuted,
   isCameraOff,
   start,
   toggleMute,
   toggleCamera,
   hangup,
-} = useCall(props.uuid, forceRelay);
+} = useCall(props.uuid);
 
 watch(localStream, (stream) => {
   if (localVideo.value) localVideo.value.srcObject = stream;
@@ -36,41 +33,75 @@ onMounted(start);
 
 function copyLink() {
   navigator.clipboard.writeText(window.location.href);
+  justCopied.value = true;
+  setTimeout(() => (justCopied.value = false), 2000);
 }
 
-const statusText = {
-  waiting: 'Waiting for the other person to join…',
-  connected: 'Connected',
-  'peer-left': 'The other person left. Waiting for them to rejoin…',
-  reconnecting: 'Connection trouble, reconnecting…',
+const statusKey = {
+  waiting: 'statusWaiting',
+  connected: 'statusConnected',
+  'peer-left': 'statusPeerLeft',
+  reconnecting: 'statusReconnecting',
 };
 </script>
 
 <template>
-  <div class="call">
+  <div class="call" :dir="dir">
     <video ref="remoteVideo" class="remote-video" autoplay playsinline></video>
     <video ref="localVideo" class="local-video" autoplay playsinline muted></video>
 
     <div class="status-banner" v-if="peerStatus !== 'connected'">
-      {{ statusText[peerStatus] }}
+      {{ t(statusKey[peerStatus]) }}
     </div>
 
-    <DebugOverlay v-if="showDebug" :stats="stats" :connection-state="connectionState" />
-
     <div class="controls">
-      <button @click="toggleMute" :class="{ active: isMuted }">
-        {{ isMuted ? 'Unmute' : 'Mute' }}
+      <button @click="toggleMute" :class="{ active: isMuted }" :aria-label="isMuted ? t('unmute') : t('mute')">
+        <svg v-if="!isMuted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <line x1="12" y1="19" x2="12" y2="23" />
+          <line x1="8" y1="23" x2="16" y2="23" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="1" y1="1" x2="23" y2="23" />
+          <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6" />
+          <path d="M17 16.95A7 7 0 0 1 5 12v-2" />
+          <path d="M19 10v2a7 7 0 0 1-.11 1.23" />
+          <line x1="12" y1="19" x2="12" y2="23" />
+          <line x1="8" y1="23" x2="16" y2="23" />
+        </svg>
+        <span>{{ isMuted ? t('unmute') : t('mute') }}</span>
       </button>
-      <button @click="toggleCamera" :class="{ active: isCameraOff }">
-        {{ isCameraOff ? 'Camera on' : 'Camera off' }}
+
+      <button @click="toggleCamera" :class="{ active: isCameraOff }" :aria-label="isCameraOff ? t('cameraOn') : t('cameraOff')">
+        <svg v-if="!isCameraOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="23 7 16 12 23 17 23 7" />
+          <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 16v1a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2" />
+          <path d="M9.5 5H14a2 2 0 0 1 2 2v3.5" />
+          <polygon points="23 7 16 12 23 17 23 7" />
+          <line x1="1" y1="1" x2="23" y2="23" />
+        </svg>
+        <span>{{ isCameraOff ? t('cameraOn') : t('cameraOff') }}</span>
       </button>
-      <button @click="copyLink">Copy link</button>
-      <label class="relay-toggle" title="Applies next time you join a call">
-        <input type="checkbox" v-model="forceRelay" />
-        Force relay
-      </label>
-      <button @click="showDebug = !showDebug">Debug</button>
-      <button class="hangup" @click="hangup">Hang up</button>
+
+      <button @click="copyLink" :aria-label="t('copyLink')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+        <span>{{ justCopied ? t('linkCopied') : t('copyLink') }}</span>
+      </button>
+
+      <button class="hangup" @click="hangup" :aria-label="t('hangup')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45c.86.31 1.77.53 2.7.63A2 2 0 0 1 22 17.72V20a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 3 5.18 2 2 0 0 1 5 3h2.28a2 2 0 0 1 2 1.72c.1.93.32 1.84.63 2.7a2 2 0 0 1-.45 2.11z" />
+          <line x1="23" y1="1" x2="1" y2="23" />
+        </svg>
+        <span>{{ t('hangup') }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -94,7 +125,7 @@ const statusText = {
 .local-video {
   position: absolute;
   top: 0.75rem;
-  right: 0.75rem;
+  inset-inline-end: 0.75rem;
   width: 30vw;
   max-width: 160px;
   border-radius: 0.5rem;
@@ -106,8 +137,8 @@ const statusText = {
 .status-banner {
   position: absolute;
   top: 0.75rem;
-  left: 0.75rem;
-  right: calc(30vw + 1.5rem);
+  inset-inline-start: 0.75rem;
+  inset-inline-end: calc(30vw + 1.5rem);
   max-width: 60%;
   background: rgba(0, 0, 0, 0.6);
   color: white;
@@ -132,6 +163,9 @@ const statusText = {
 }
 
 .controls button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.6rem 0.9rem;
   border-radius: 0.5rem;
   border: none;
@@ -140,22 +174,17 @@ const statusText = {
   font-size: 0.85rem;
 }
 
+.controls button svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
 .controls button.active {
   background: #dc2626;
 }
 
 .controls button.hangup {
   background: #dc2626;
-}
-
-.relay-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  color: white;
-  font-size: 0.8rem;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0.4rem 0.6rem;
-  border-radius: 0.5rem;
 }
 </style>
