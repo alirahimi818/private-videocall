@@ -1,0 +1,17 @@
+{
+  "name": "node-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "uuid": "^14.0.1",
+    "ws": "^8.21.0"
+  }
+}
