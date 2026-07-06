@@ -24,6 +24,7 @@ export function useCall(roomId, forceRelay) {
   let pc = null;
   let signaling = null;
   let polite = true;
+  let politeAssigned = false;
   let makingOffer = false;
   let ignoreOffer = false;
   let statsTimer = null;
@@ -61,7 +62,16 @@ export function useCall(roomId, forceRelay) {
     });
 
     signaling.events.addEventListener('joined', (event) => {
+      // Only the very first join decides politeness. A WS reconnect (e.g.
+      // after a network switch) re-triggers 'joined' with whatever peerCount
+      // the room happens to have at that moment, which has nothing to do
+      // with this client's original role — reassigning it here could flip
+      // both peers to impolite (if the other side's role never changes),
+      // and impolite/impolite means each side ignores the other's offer
+      // during any collision, deadlocking the reconnect forever.
+      if (politeAssigned) return;
       polite = event.detail.peerCount === 1;
+      politeAssigned = true;
     });
 
     signaling.events.addEventListener('peer-left', () => {
