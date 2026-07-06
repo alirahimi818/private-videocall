@@ -10,8 +10,13 @@ export function useI18n() {
   const locale = computed(() => route.meta.locale ?? 'en');
   const dir = computed(() => (locale.value === 'fa' ? 'rtl' : 'ltr'));
 
-  function t(key) {
-    return dictionaries[locale.value]?.[key] ?? dictionaries.en[key] ?? key;
+  function t(key, vars) {
+    const template = dictionaries[locale.value]?.[key] ?? dictionaries.en[key] ?? key;
+    if (!vars) return template;
+    return Object.entries(vars).reduce(
+      (str, [name, value]) => str.replaceAll(`{${name}}`, value),
+      template,
+    );
   }
 
   return { locale, dir, t };

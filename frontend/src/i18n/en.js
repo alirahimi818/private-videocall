@@ -10,6 +10,7 @@ export const en = {
   statusConnected: 'Connected',
   statusPeerLeft: 'The other person left. Waiting for them to rejoin…',
   statusReconnecting: 'Connection trouble, reconnecting…',
+  statusReconnectingAttempt: 'Connection trouble, reconnecting… (attempt {n})',
 
   mute: 'Mute',
   unmute: 'Unmute',

@@ -4,10 +4,12 @@ import { wsUrl } from './api.js';
 const MAX_BACKOFF_MS = 10_000;
 
 // Thin reconnecting WebSocket wrapper around an EventTarget so callers can
-// addEventListener for 'joined' | 'peer-joined' | 'peer-left' | 'signal' | 'open' | 'close'.
+// addEventListener for 'joined' | 'peer-joined' | 'peer-left' | 'signal' |
+// 'open' | 'close' | 'reconnect-scheduled'.
 export function useSignaling(roomId) {
   const events = new EventTarget();
   const status = ref('connecting'); // connecting | open | closed
+  const reconnectAttempt = ref(0);
   let ws = null;
   let attempt = 0;
   let closedByUser = false;
@@ -21,6 +23,7 @@ export function useSignaling(roomId) {
 
     ws.addEventListener('open', () => {
       attempt = 0;
+      reconnectAttempt.value = 0;
       status.value = 'open';
       while (outbox.length > 0) {
         ws.send(outbox.shift());
@@ -43,9 +46,13 @@ export function useSignaling(roomId) {
       }
     });
 
-    ws.addEventListener('close', () => {
+    ws.addEventListener('close', (event) => {
       status.value = 'closed';
-      events.dispatchEvent(new Event('close'));
+      events.dispatchEvent(
+        new CustomEvent('close', {
+          detail: { code: event.code, reason: event.reason, wasClean: event.wasClean },
+        }),
+      );
       if (!closedByUser) scheduleReconnect();
     });
 
@@ -57,7 +64,9 @@ export function useSignaling(roomId) {
   function scheduleReconnect() {
     const delay = Math.min(1000 * 2 ** attempt, MAX_BACKOFF_MS);
     attempt += 1;
+    reconnectAttempt.value = attempt;
     status.value = 'connecting';
+    events.dispatchEvent(new CustomEvent('reconnect-scheduled', { detail: { attempt, delay } }));
     reconnectTimer = setTimeout(connect, delay);
   }
 
@@ -78,5 +87,5 @@ export function useSignaling(roomId) {
 
   connect();
 
-  return { events, status, send, close };
+  return { events, status, reconnectAttempt, send, close };
 }

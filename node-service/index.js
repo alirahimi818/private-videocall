@@ -157,9 +157,15 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
     room.peers.delete(ws);
-    console.log(`[room ${roomId}] peer left (${room.peers.size}/2)`);
+    // Code 1006 (no close frame received) usually means the network just
+    // vanished (dead interface, DPI interference) rather than a clean
+    // client-initiated close (1000/1001) — useful to tell apart when
+    // diagnosing connection instability.
+    console.log(
+      `[room ${roomId}] peer left (${room.peers.size}/2) code=${code} reason=${reason?.toString() || ''}`,
+    );
     for (const peer of room.peers) {
       if (peer.readyState === peer.OPEN) {
         peer.send(JSON.stringify({ type: 'peer-left' }));
@@ -172,6 +178,7 @@ wss.on('connection', (ws, req) => {
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.isAlive === false) {
+      console.log(`[room ${ws.roomId}] terminating unresponsive connection (missed heartbeat)`);
       ws.terminate();
       continue;
     }

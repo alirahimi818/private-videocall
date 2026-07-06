@@ -16,6 +16,7 @@ const {
   peerStatus,
   isMuted,
   isCameraOff,
+  wsReconnectAttempt,
   start,
   toggleMute,
   toggleCamera,
@@ -51,7 +52,11 @@ const statusKey = {
     <video ref="localVideo" class="local-video" autoplay playsinline muted></video>
 
     <div class="status-banner" v-if="peerStatus !== 'connected'">
-      {{ t(statusKey[peerStatus]) }}
+      {{
+        peerStatus === 'reconnecting' && wsReconnectAttempt > 0
+          ? t('statusReconnectingAttempt', { n: wsReconnectAttempt })
+          : t(statusKey[peerStatus])
+      }}
     </div>
 
     <div class="controls">

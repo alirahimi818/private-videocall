@@ -13,6 +13,12 @@ const STATS_INTERVAL_MS = 2500;
 const DEBUG_REPORT_INTERVAL_MS = 10_000;
 const VIDEO_MAX_BITRATE = 350_000;
 
+function getNetworkInfo() {
+  const conn = navigator.connection ?? navigator.mozConnection ?? navigator.webkitConnection;
+  if (!conn) return null;
+  return { effectiveType: conn.effectiveType, downlink: conn.downlink, rtt: conn.rtt, saveData: conn.saveData };
+}
+
 export function useCall(roomId) {
   const localStream = shallowRef(null);
   const remoteStream = shallowRef(null);
@@ -20,7 +26,13 @@ export function useCall(roomId) {
   const connectionState = ref('new');
   const isMuted = ref(false);
   const isCameraOff = ref(false);
+  const wsReconnectAttempt = ref(0);
   const stats = ref({ candidateType: null, protocol: null, outboundKbps: 0, inboundKbps: 0, packetLoss: null, rtt: null });
+
+  // Identifies all log lines from this one page load/session, so entries
+  // from the two peers (interleaved in the same room's log) and across
+  // this client's own reconnects can be told apart.
+  const sessionId = Math.random().toString(36).slice(2, 10);
 
   let pc = null;
   let signaling = null;
@@ -33,6 +45,15 @@ export function useCall(roomId) {
   let statsTimer = null;
   let debugTimer = null;
   let lastStats = null;
+  let seenCandidateTypes = new Set();
+
+  // Best-effort, fire-and-forget event log shipped to the server immediately
+  // (as opposed to the periodic snapshot below) so the exact sequence of
+  // what happened is reconstructable after the fact — see
+  // node-service/debugLog.js for where this ends up.
+  function logEvent(type, data = {}) {
+    postDebugLog(roomId, { type, sessionId, ...data });
+  }
 
   // Builds a fresh RTCPeerConnection with all handlers and local tracks
   // wired up. Called once from start(), and again from the 'peer-left'
@@ -44,6 +65,7 @@ export function useCall(roomId) {
   // one too.
   async function createPeerConnection() {
     if (pc) pc.close();
+    seenCandidateTypes = new Set();
 
     pc = new RTCPeerConnection({
       iceServers,
@@ -59,6 +81,8 @@ export function useCall(roomId) {
 
     pc.oniceconnectionstatechange = () => {
       connectionState.value = pc.iceConnectionState;
+      logEvent('ice-state', { state: pc.iceConnectionState, relayOnly });
+
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         peerStatus.value = 'connected';
       } else if (pc.iceConnectionState === 'failed') {
@@ -66,9 +90,10 @@ export function useCall(roomId) {
           // A direct/srflx path didn't work out — rebuild the connection
           // forced to relay-only instead of just restarting ICE with the
           // same candidate policy that already failed.
+          logEvent('relay-fallback-triggered');
           relayOnly = true;
           peerStatus.value = 'reconnecting';
-          createPeerConnection().catch((err) => console.error('failed to fall back to relay', err));
+          createPeerConnection().catch((err) => logEvent('error', { context: 'relay-fallback', message: String(err) }));
         } else {
           restartIce();
         }
@@ -77,8 +102,21 @@ export function useCall(roomId) {
       }
     };
 
+    pc.onicegatheringstatechange = () => {
+      logEvent('ice-gathering-state', { state: pc.iceGatheringState });
+    };
+
     pc.onicecandidate = ({ candidate }) => {
-      if (candidate) signaling.send({ candidate });
+      if (!candidate) return;
+      signaling.send({ candidate });
+      // Log the first time each candidate type (host/srflx/relay/prflx)
+      // shows up this gathering pass — cheap signal for "did we even
+      // manage to gather a relay candidate at all", without logging every
+      // single candidate.
+      if (!seenCandidateTypes.has(candidate.type)) {
+        seenCandidateTypes.add(candidate.type);
+        logEvent('ice-candidate-type-seen', { candidateType: candidate.type, protocol: candidate.protocol });
+      }
     };
 
     pc.onnegotiationneeded = async () => {
@@ -90,6 +128,7 @@ export function useCall(roomId) {
         signaling.send({ description: pc.localDescription });
       } catch (err) {
         console.error('negotiation failed', err);
+        logEvent('error', { context: 'negotiationneeded', message: String(err) });
       } finally {
         makingOffer = false;
       }
@@ -111,14 +150,19 @@ export function useCall(roomId) {
 
     ({ iceServers } = await fetchIceServers(roomId));
 
+    logEvent('session-start', { userAgent: navigator.userAgent, network: getNetworkInfo() });
+
     // signaling must exist before createPeerConnection() below: 'negotiationneeded'
     // and ICE candidates fire asynchronously and call signaling.send(), and if
     // they fire before it's assigned, the event is lost and neither side ever
     // creates an offer.
     signaling = useSignaling(roomId);
+    wsReconnectAttempt.value = 0;
 
     let hasConnectedBefore = false;
     signaling.events.addEventListener('open', () => {
+      logEvent('ws-open');
+      wsReconnectAttempt.value = 0;
       // A WS reconnect after a drop needs a fresh offer/answer exchange
       // since ICE state may be stale on one or both sides.
       if (hasConnectedBefore && pc && pc.signalingState !== 'closed') {
@@ -127,7 +171,17 @@ export function useCall(roomId) {
       hasConnectedBefore = true;
     });
 
+    signaling.events.addEventListener('close', (event) => {
+      logEvent('ws-close', event.detail);
+    });
+
+    signaling.events.addEventListener('reconnect-scheduled', (event) => {
+      wsReconnectAttempt.value = event.detail.attempt;
+      logEvent('ws-reconnect-scheduled', event.detail);
+    });
+
     signaling.events.addEventListener('joined', (event) => {
+      logEvent('joined', event.detail);
       // Only the very first join decides politeness. A WS reconnect (e.g.
       // after a network switch) re-triggers 'joined' with whatever peerCount
       // the room happens to have at that moment, which has nothing to do
@@ -141,6 +195,7 @@ export function useCall(roomId) {
     });
 
     signaling.events.addEventListener('peer-left', () => {
+      logEvent('peer-left');
       peerStatus.value = 'peer-left';
       // The old pc was talking to a peer that's now completely gone —
       // start fresh so we're in a clean 'stable' state, ready to accept
@@ -151,10 +206,11 @@ export function useCall(roomId) {
       makingOffer = false;
       ignoreOffer = false;
       lastStats = null;
-      createPeerConnection().catch((err) => console.error('failed to reset peer connection', err));
+      createPeerConnection().catch((err) => logEvent('error', { context: 'peer-left-reset', message: String(err) }));
     });
 
     signaling.events.addEventListener('peer-joined', () => {
+      logEvent('peer-joined');
       peerStatus.value = 'waiting';
     });
 
@@ -165,7 +221,10 @@ export function useCall(roomId) {
           const offerCollision =
             description.type === 'offer' && (makingOffer || pc.signalingState !== 'stable');
           ignoreOffer = !polite && offerCollision;
-          if (ignoreOffer) return;
+          if (ignoreOffer) {
+            logEvent('offer-ignored', { polite, signalingState: pc.signalingState });
+            return;
+          }
 
           await pc.setRemoteDescription(description);
           if (description.type === 'offer') {
@@ -183,6 +242,7 @@ export function useCall(roomId) {
         }
       } catch (err) {
         console.error('signal handling failed', err);
+        logEvent('error', { context: 'signal-handling', message: String(err) });
       }
     });
 
@@ -279,13 +339,18 @@ export function useCall(roomId) {
 
   // No visible debug UI — instead, periodically ship the same connection
   // stats to the server so the Iran side's call quality can be diagnosed
-  // from server logs after the fact (see node-service/debugLog.js).
+  // from server logs after the fact (see node-service/debugLog.js). This is
+  // a snapshot on a timer; logEvent() above covers the discrete moments
+  // (state transitions, errors) in between snapshots.
   function startDebugReporting() {
     debugTimer = setInterval(() => {
       postDebugLog(roomId, {
+        type: 'snapshot',
+        sessionId,
         peerStatus: peerStatus.value,
         connectionState: connectionState.value,
         relayOnly,
+        wsReconnectAttempt: wsReconnectAttempt.value,
         ...stats.value,
       });
     }, DEBUG_REPORT_INTERVAL_MS);
@@ -309,6 +374,7 @@ export function useCall(roomId) {
     peerStatus,
     isMuted,
     isCameraOff,
+    wsReconnectAttempt,
     start,
     toggleMute,
     toggleCamera,

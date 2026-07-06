@@ -10,6 +10,7 @@ export const fa = {
   statusConnected: 'متصل شد',
   statusPeerLeft: 'طرف مقابل رفت. در انتظار بازگشت اوست…',
   statusReconnecting: 'مشکل در اتصال، در حال اتصال مجدد…',
+  statusReconnectingAttempt: 'مشکل در اتصال، در حال اتصال مجدد… (تلاش {n})',
 
   mute: 'قطع صدا',
   unmute: 'فعال‌کردن صدا',
