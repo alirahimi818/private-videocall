@@ -14,6 +14,13 @@ const DEBUG_REPORT_INTERVAL_MS = 10_000;
 const VIDEO_MAX_BITRATE = 350_000;
 const GET_USER_MEDIA_TIMEOUT_MS = 15_000;
 const FETCH_ICE_SERVERS_TIMEOUT_MS = 10_000;
+// restartIce() on 'disconnected' can mask a connection that would otherwise
+// reach 'failed' — repeatedly restarting resets it back to 'checking' before
+// the browser ever calls it failed, so the relay-fallback below (which only
+// used to trigger on 'failed') would never engage. Escalate after a few
+// disconnects with no successful connection in between instead of waiting
+// for a 'failed' that may never come.
+const DISCONNECT_ESCALATION_THRESHOLD = 2;
 
 function getNetworkInfo() {
   const conn = navigator.connection ?? navigator.mozConnection ?? navigator.webkitConnection;
@@ -69,6 +76,8 @@ export function useCall(roomId) {
   let debugTimer = null;
   let lastStats = null;
   let seenCandidateTypes = new Set();
+  let disconnectCount = 0;
+  let lastAttemptedPairs = null;
 
   // Best-effort, fire-and-forget event log shipped to the server immediately
   // (as opposed to the periodic snapshot below) so the exact sequence of
@@ -108,20 +117,16 @@ export function useCall(roomId) {
 
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         peerStatus.value = 'connected';
+        disconnectCount = 0;
       } else if (pc.iceConnectionState === 'failed') {
-        if (!relayOnly) {
-          // A direct/srflx path didn't work out — rebuild the connection
-          // forced to relay-only instead of just restarting ICE with the
-          // same candidate policy that already failed.
-          logEvent('relay-fallback-triggered');
-          relayOnly = true;
-          peerStatus.value = 'reconnecting';
-          createPeerConnection().catch((err) => logEvent('error', { context: 'relay-fallback', message: String(err) }));
+        fallBackToRelayOrRestart('failed');
+      } else if (pc.iceConnectionState === 'disconnected') {
+        disconnectCount += 1;
+        if (disconnectCount >= DISCONNECT_ESCALATION_THRESHOLD) {
+          fallBackToRelayOrRestart('repeated-disconnects');
         } else {
           restartIce();
         }
-      } else if (pc.iceConnectionState === 'disconnected') {
-        restartIce();
       }
     };
 
@@ -311,6 +316,21 @@ export function useCall(roomId) {
     pc.restartIce();
   }
 
+  function fallBackToRelayOrRestart(reason) {
+    if (!relayOnly) {
+      // A direct/srflx path didn't work out — rebuild the connection
+      // forced to relay-only instead of just restarting ICE with the
+      // same candidate policy that already failed.
+      logEvent('relay-fallback-triggered', { reason });
+      relayOnly = true;
+      disconnectCount = 0;
+      peerStatus.value = 'reconnecting';
+      createPeerConnection().catch((err) => logEvent('error', { context: 'relay-fallback', message: String(err) }));
+    } else {
+      restartIce();
+    }
+  }
+
   function toggleMute() {
     if (!localStream.value) return;
     isMuted.value = !isMuted.value;
@@ -337,7 +357,29 @@ export function useCall(roomId) {
           activePair = entry;
         }
       });
-      if (!activePair) return;
+      if (!activePair) {
+        // Not connected yet (or not anymore) — capture what was actually
+        // tried and why, since getStats() only exposes this for as long as
+        // the pair exists. Without this, a stuck/failed connection just
+        // shows up as "nothing", with no clue which local/remote candidate
+        // combinations were attempted or what state they ended up in.
+        const attemptedPairs = [];
+        report.forEach((entry) => {
+          if (entry.type !== 'candidate-pair') return;
+          const local = report.get(entry.localCandidateId);
+          const remote = report.get(entry.remoteCandidateId);
+          attemptedPairs.push({
+            state: entry.state,
+            localType: local?.candidateType ?? null,
+            localProtocol: local?.protocol ?? null,
+            remoteType: remote?.candidateType ?? null,
+            remoteProtocol: remote?.protocol ?? null,
+          });
+        });
+        lastAttemptedPairs = attemptedPairs.length > 0 ? attemptedPairs : null;
+        return;
+      }
+      lastAttemptedPairs = null;
 
       const localCandidate = report.get(activePair.localCandidateId);
       const remoteCandidate = report.get(activePair.remoteCandidateId);
@@ -409,6 +451,8 @@ export function useCall(roomId) {
         visibilityState: document.visibilityState,
         userAgent: navigator.userAgent,
         network: getNetworkInfo(),
+        disconnectCount,
+        attemptedPairs: lastAttemptedPairs,
         ...stats.value,
       });
     }, DEBUG_REPORT_INTERVAL_MS);

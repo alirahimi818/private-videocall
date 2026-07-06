@@ -163,11 +163,27 @@ wss.on('connection', (ws, req) => {
   }
 
   ws.on('message', (data) => {
-    // Blind relay: no parsing beyond delivering to the other peer.
-    for (const peer of room.peers) {
-      if (peer !== ws && peer.readyState === peer.OPEN) {
-        peer.send(data.toString());
-      }
+    const raw = data.toString();
+    // Peeking at the message type is purely for diagnostics (did the offer/
+    // answer/candidate actually reach the other peer, or get dropped because
+    // no live peer was found?) — relay itself stays blind, forwarding the
+    // raw string unparsed either way.
+    let kind = 'unknown';
+    try {
+      const parsed = JSON.parse(raw);
+      kind = parsed.description?.type ?? (parsed.candidate ? 'candidate' : 'unknown');
+    } catch {
+      // ignore — still relay raw below
+    }
+
+    const otherPeer = [...room.peers].find((peer) => peer !== ws);
+    if (otherPeer && otherPeer.readyState === otherPeer.OPEN) {
+      otherPeer.send(raw);
+      console.log(`[room ${roomId}] relayed ${kind} ip=${ws.clientIp} -> ip=${otherPeer.clientIp}`);
+    } else {
+      console.log(
+        `[room ${roomId}] dropped ${kind} from ip=${ws.clientIp}: no live peer to relay to (readyState=${otherPeer?.readyState ?? 'none'})`,
+      );
     }
   });
 

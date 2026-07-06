@@ -3,4 +3,5 @@ dist/
 .env
 coturn/certs/
 *.log
+logs/
 CLAUDE.md
