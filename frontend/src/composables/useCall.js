@@ -23,6 +23,7 @@ export function useCall(roomId, forceRelay) {
 
   let pc = null;
   let signaling = null;
+  let iceServers = null;
   let polite = true;
   let politeAssigned = false;
   let makingOffer = false;
@@ -30,92 +31,20 @@ export function useCall(roomId, forceRelay) {
   let statsTimer = null;
   let lastStats = null;
 
-  async function start() {
-    localStream.value = await navigator.mediaDevices.getUserMedia({
-      video: VIDEO_CONSTRAINTS,
-      audio: true,
-    });
-    const [videoTrack] = localStream.value.getVideoTracks();
-    if (videoTrack) videoTrack.contentHint = 'motion';
-
-    const { iceServers } = await fetchIceServers(roomId);
+  // Builds a fresh RTCPeerConnection with all handlers and local tracks
+  // wired up. Called once from start(), and again from the 'peer-left'
+  // handler below: once the other side has fully left the room, the old
+  // pc's ICE/SDP state has nothing left to talk to, and trying to nurse it
+  // back to life (ICE restart, stale offers, politeness bookkeeping) is a
+  // losing game — a rejoining peer always shows up with a brand-new
+  // RTCPeerConnection of its own, so the cleanest way to meet it is with
+  // one too.
+  async function createPeerConnection() {
+    if (pc) pc.close();
 
     pc = new RTCPeerConnection({
       iceServers,
       iceTransportPolicy: forceRelay.value ? 'relay' : 'all',
-    });
-
-    // signaling must exist before any pc handler below runs: 'negotiationneeded'
-    // and ICE candidates fire asynchronously and call signaling.send(), and if
-    // they fire before addTrack() below, the handlers must already be wired up
-    // too, or the event is lost and neither side ever creates an offer.
-    signaling = useSignaling(roomId);
-
-    let hasConnectedBefore = false;
-    signaling.events.addEventListener('open', () => {
-      // A WS reconnect after a drop needs a fresh offer/answer exchange
-      // since ICE state may be stale on one or both sides.
-      if (hasConnectedBefore && pc && pc.signalingState !== 'closed') {
-        pc.restartIce();
-      }
-      hasConnectedBefore = true;
-    });
-
-    signaling.events.addEventListener('joined', (event) => {
-      // Only the very first join decides politeness. A WS reconnect (e.g.
-      // after a network switch) re-triggers 'joined' with whatever peerCount
-      // the room happens to have at that moment, which has nothing to do
-      // with this client's original role — reassigning it here could flip
-      // both peers to impolite (if the other side's role never changes),
-      // and impolite/impolite means each side ignores the other's offer
-      // during any collision, deadlocking the reconnect forever.
-      if (politeAssigned) return;
-      polite = event.detail.peerCount === 1;
-      politeAssigned = true;
-    });
-
-    signaling.events.addEventListener('peer-left', () => {
-      peerStatus.value = 'peer-left';
-      // Whatever local offer we might end up holding while alone (e.g. from
-      // our own ICE-restart attempt after the disconnect) is addressed to
-      // nobody. Force polite so that when someone rejoins with a fresh
-      // offer, we accept it (rolling back our stale one) instead of
-      // ignoring it — otherwise, if this side happened to be impolite,
-      // it would ignore the rejoining peer's offer forever and both sides
-      // would stay stuck until a manual refresh.
-      polite = true;
-    });
-
-    signaling.events.addEventListener('peer-joined', () => {
-      peerStatus.value = 'waiting';
-    });
-
-    signaling.events.addEventListener('signal', async (event) => {
-      const { description, candidate } = event.detail;
-      try {
-        if (description) {
-          const offerCollision =
-            description.type === 'offer' && (makingOffer || pc.signalingState !== 'stable');
-          ignoreOffer = !polite && offerCollision;
-          if (ignoreOffer) return;
-
-          await pc.setRemoteDescription(description);
-          if (description.type === 'offer') {
-            const answer = await pc.createAnswer();
-            answer.sdp = mungeOpusFmtp(answer.sdp);
-            await pc.setLocalDescription(answer);
-            signaling.send({ description: pc.localDescription });
-          }
-        } else if (candidate) {
-          try {
-            await pc.addIceCandidate(candidate);
-          } catch (err) {
-            if (!ignoreOffer) throw err;
-          }
-        }
-      } catch (err) {
-        console.error('signal handling failed', err);
-      }
     });
 
     remoteStream.value = new MediaStream();
@@ -156,6 +85,94 @@ export function useCall(roomId, forceRelay) {
       pc.addTrack(track, localStream.value);
     }
     await applyVideoBitrateLimit();
+  }
+
+  async function start() {
+    localStream.value = await navigator.mediaDevices.getUserMedia({
+      video: VIDEO_CONSTRAINTS,
+      audio: true,
+    });
+    const [videoTrack] = localStream.value.getVideoTracks();
+    if (videoTrack) videoTrack.contentHint = 'motion';
+
+    ({ iceServers } = await fetchIceServers(roomId));
+
+    // signaling must exist before createPeerConnection() below: 'negotiationneeded'
+    // and ICE candidates fire asynchronously and call signaling.send(), and if
+    // they fire before it's assigned, the event is lost and neither side ever
+    // creates an offer.
+    signaling = useSignaling(roomId);
+
+    let hasConnectedBefore = false;
+    signaling.events.addEventListener('open', () => {
+      // A WS reconnect after a drop needs a fresh offer/answer exchange
+      // since ICE state may be stale on one or both sides.
+      if (hasConnectedBefore && pc && pc.signalingState !== 'closed') {
+        pc.restartIce();
+      }
+      hasConnectedBefore = true;
+    });
+
+    signaling.events.addEventListener('joined', (event) => {
+      // Only the very first join decides politeness. A WS reconnect (e.g.
+      // after a network switch) re-triggers 'joined' with whatever peerCount
+      // the room happens to have at that moment, which has nothing to do
+      // with this client's original role — reassigning it here could flip
+      // both peers to impolite (if the other side's role never changes),
+      // and impolite/impolite means each side ignores the other's offer
+      // during any collision, deadlocking the reconnect forever.
+      if (politeAssigned) return;
+      polite = event.detail.peerCount === 1;
+      politeAssigned = true;
+    });
+
+    signaling.events.addEventListener('peer-left', () => {
+      peerStatus.value = 'peer-left';
+      // The old pc was talking to a peer that's now completely gone —
+      // start fresh so we're in a clean 'stable' state, ready to accept
+      // whatever offer the rejoining peer's own brand-new pc sends, rather
+      // than juggling stale ICE state / a dangling local offer / politeness
+      // edge cases on a connection with nothing left on the other end.
+      polite = true;
+      makingOffer = false;
+      ignoreOffer = false;
+      lastStats = null;
+      createPeerConnection().catch((err) => console.error('failed to reset peer connection', err));
+    });
+
+    signaling.events.addEventListener('peer-joined', () => {
+      peerStatus.value = 'waiting';
+    });
+
+    signaling.events.addEventListener('signal', async (event) => {
+      const { description, candidate } = event.detail;
+      try {
+        if (description) {
+          const offerCollision =
+            description.type === 'offer' && (makingOffer || pc.signalingState !== 'stable');
+          ignoreOffer = !polite && offerCollision;
+          if (ignoreOffer) return;
+
+          await pc.setRemoteDescription(description);
+          if (description.type === 'offer') {
+            const answer = await pc.createAnswer();
+            answer.sdp = mungeOpusFmtp(answer.sdp);
+            await pc.setLocalDescription(answer);
+            signaling.send({ description: pc.localDescription });
+          }
+        } else if (candidate) {
+          try {
+            await pc.addIceCandidate(candidate);
+          } catch (err) {
+            if (!ignoreOffer) throw err;
+          }
+        }
+      } catch (err) {
+        console.error('signal handling failed', err);
+      }
+    });
+
+    await createPeerConnection();
 
     startStatsPolling();
   }
