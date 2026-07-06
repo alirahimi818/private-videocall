@@ -86,12 +86,19 @@ turnutils_uclient -T -y -u <username> -w <credential> turn.example.com
 # get a "relay" candidate over turns:443, not just host/srflx.
 ```
 
-In the app itself, use the "Debug" toggle during a call to see the active
-candidate-pair type (`host` / `srflx` / `relay`) and protocol
-(`udp` / `tcp` / `tls`) live — this is the main tool for diagnosing the
-Iran side remotely. The "Force relay" toggle in settings forces
-`iceTransportPolicy: 'relay'` so you can verify the relay-only path works
-even when a direct connection would otherwise succeed.
+There's no visible debug UI in the app — instead, each client ships its
+connection stats (candidate-pair type, protocol, bitrate, loss, RTT) to the
+server every 10s, logged to a rotated file:
+
+```sh
+docker compose exec node-service tail -f /var/log/app/debug.log
+```
+
+Relay fallback is automatic: calls start with `iceTransportPolicy: 'all'`,
+and if ICE ends up `failed`, the client rebuilds the connection forced to
+`iceTransportPolicy: 'relay'` (visible as `"relayOnly": true` in the debug
+log) — no manual toggle needed to diagnose or work around a blocked direct
+path.
 
 ## Repo layout
 

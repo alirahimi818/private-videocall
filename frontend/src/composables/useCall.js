@@ -1,5 +1,5 @@
 import { ref, shallowRef, onBeforeUnmount } from 'vue';
-import { fetchIceServers } from './api.js';
+import { fetchIceServers, postDebugLog } from './api.js';
 import { useSignaling } from './useSignaling.js';
 import { mungeOpusFmtp } from './sdpMunge.js';
 
@@ -10,9 +10,10 @@ const VIDEO_CONSTRAINTS = {
 };
 
 const STATS_INTERVAL_MS = 2500;
+const DEBUG_REPORT_INTERVAL_MS = 10_000;
 const VIDEO_MAX_BITRATE = 350_000;
 
-export function useCall(roomId, forceRelay) {
+export function useCall(roomId) {
   const localStream = shallowRef(null);
   const remoteStream = shallowRef(null);
   const peerStatus = ref('waiting'); // waiting | connected | peer-left | reconnecting
@@ -28,7 +29,9 @@ export function useCall(roomId, forceRelay) {
   let politeAssigned = false;
   let makingOffer = false;
   let ignoreOffer = false;
+  let relayOnly = false;
   let statsTimer = null;
+  let debugTimer = null;
   let lastStats = null;
 
   // Builds a fresh RTCPeerConnection with all handlers and local tracks
@@ -44,7 +47,7 @@ export function useCall(roomId, forceRelay) {
 
     pc = new RTCPeerConnection({
       iceServers,
-      iceTransportPolicy: forceRelay.value ? 'relay' : 'all',
+      iceTransportPolicy: relayOnly ? 'relay' : 'all',
     });
 
     remoteStream.value = new MediaStream();
@@ -58,7 +61,18 @@ export function useCall(roomId, forceRelay) {
       connectionState.value = pc.iceConnectionState;
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         peerStatus.value = 'connected';
-      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+      } else if (pc.iceConnectionState === 'failed') {
+        if (!relayOnly) {
+          // A direct/srflx path didn't work out — rebuild the connection
+          // forced to relay-only instead of just restarting ICE with the
+          // same candidate policy that already failed.
+          relayOnly = true;
+          peerStatus.value = 'reconnecting';
+          createPeerConnection().catch((err) => console.error('failed to fall back to relay', err));
+        } else {
+          restartIce();
+        }
+      } else if (pc.iceConnectionState === 'disconnected') {
         restartIce();
       }
     };
@@ -175,6 +189,7 @@ export function useCall(roomId, forceRelay) {
     await createPeerConnection();
 
     startStatsPolling();
+    startDebugReporting();
   }
 
   async function applyVideoBitrateLimit() {
@@ -262,8 +277,23 @@ export function useCall(roomId, forceRelay) {
     }, STATS_INTERVAL_MS);
   }
 
+  // No visible debug UI — instead, periodically ship the same connection
+  // stats to the server so the Iran side's call quality can be diagnosed
+  // from server logs after the fact (see node-service/debugLog.js).
+  function startDebugReporting() {
+    debugTimer = setInterval(() => {
+      postDebugLog(roomId, {
+        peerStatus: peerStatus.value,
+        connectionState: connectionState.value,
+        relayOnly,
+        ...stats.value,
+      });
+    }, DEBUG_REPORT_INTERVAL_MS);
+  }
+
   function hangup() {
     clearInterval(statsTimer);
+    clearInterval(debugTimer);
     signaling?.close();
     pc?.close();
     for (const track of localStream.value?.getTracks() ?? []) {
@@ -277,8 +307,6 @@ export function useCall(roomId, forceRelay) {
     localStream,
     remoteStream,
     peerStatus,
-    connectionState,
-    stats,
     isMuted,
     isCameraOff,
     start,

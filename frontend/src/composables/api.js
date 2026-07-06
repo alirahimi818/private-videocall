@@ -17,3 +17,15 @@ export function wsUrl(roomId) {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/ws?room=${roomId}`;
 }
+
+// Best-effort periodic telemetry (connection state / bitrate / loss) so the
+// Iran side's connection quality can be diagnosed from server logs without a
+// visible debug UI. Failures are swallowed — this must never affect the call.
+export function postDebugLog(roomId, payload) {
+  fetch(`${API_BASE}/rooms/${roomId}/debug`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    keepalive: true,
+  }).catch(() => {});
+}

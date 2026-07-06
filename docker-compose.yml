@@ -23,6 +23,10 @@ services:
       TURN_HOST: ${TURN_DOMAIN}
     expose:
       - "8080"
+    volumes:
+      # Rotated client debug telemetry (see node-service/debugLog.js) —
+      # persisted so a restart doesn't erase evidence of what went wrong.
+      - debug_logs:/var/log/app
 
   caddy:
     build:
@@ -45,3 +49,4 @@ services:
 volumes:
   caddy_data:
   caddy_config:
+  debug_logs:

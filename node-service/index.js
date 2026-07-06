@@ -4,11 +4,13 @@ import { WebSocketServer } from 'ws';
 import { v4 as uuidv4, validate as isUuid } from 'uuid';
 import { createRoom, getRoom, deleteRoomIfEmpty } from './rooms.js';
 import { generateTurnCredentials, buildIceServers } from './turn.js';
+import { appendDebugLog } from './debugLog.js';
 
 const PORT = process.env.PORT || 8080;
 const SHARED_SECRET = process.env.TURN_SHARED_SECRET;
 const TURN_HOST = process.env.TURN_HOST;
 const HEARTBEAT_INTERVAL_MS = 30_000;
+const MAX_DEBUG_BODY_BYTES = 4096;
 
 if (!SHARED_SECRET) {
   throw new Error('TURN_SHARED_SECRET env var is required');
@@ -26,7 +28,31 @@ function sendJson(res, status, body) {
   res.end(payload);
 }
 
-function handleApi(req, res, pathname) {
+function readJsonBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > maxBytes) {
+        req.destroy();
+        reject(new Error('payload too large'));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {});
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+async function handleApi(req, res, pathname) {
   if (req.method === 'POST' && pathname === '/api/rooms') {
     const roomId = uuidv4();
     createRoom(roomId);
@@ -44,13 +70,33 @@ function handleApi(req, res, pathname) {
     return sendJson(res, 200, { iceServers, ttl: creds.ttl });
   }
 
+  const debugMatch = pathname.match(/^\/api\/rooms\/([0-9a-f-]{36})\/debug$/i);
+  if (req.method === 'POST' && debugMatch) {
+    const roomId = debugMatch[1];
+    if (!isUuid(roomId)) {
+      return sendJson(res, 400, { error: 'invalid room id' });
+    }
+    let body;
+    try {
+      body = await readJsonBody(req, MAX_DEBUG_BODY_BYTES);
+    } catch {
+      return sendJson(res, 400, { error: 'invalid body' });
+    }
+    appendDebugLog({ roomId, ...body });
+    res.writeHead(204);
+    return res.end();
+  }
+
   sendJson(res, 404, { error: 'not found' });
 }
 
 const server = http.createServer((req, res) => {
   const { pathname } = new URL(req.url, `http://${req.headers.host}`);
   if (pathname.startsWith('/api/')) {
-    handleApi(req, res, pathname);
+    handleApi(req, res, pathname).catch((err) => {
+      console.error('API error', err);
+      if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
+    });
     return;
   }
   sendJson(res, 404, { error: 'not found' });
