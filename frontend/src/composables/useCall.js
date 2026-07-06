@@ -44,45 +44,10 @@ export function useCall(roomId, forceRelay) {
       iceTransportPolicy: forceRelay.value ? 'relay' : 'all',
     });
 
-    for (const track of localStream.value.getTracks()) {
-      pc.addTrack(track, localStream.value);
-    }
-    await applyVideoBitrateLimit();
-
-    remoteStream.value = new MediaStream();
-    pc.ontrack = (event) => {
-      for (const track of event.streams[0]?.getTracks() ?? [event.track]) {
-        remoteStream.value.addTrack(track);
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      connectionState.value = pc.iceConnectionState;
-      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        peerStatus.value = 'connected';
-      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-        restartIce();
-      }
-    };
-
-    pc.onicecandidate = ({ candidate }) => {
-      if (candidate) signaling.send({ candidate });
-    };
-
-    pc.onnegotiationneeded = async () => {
-      try {
-        makingOffer = true;
-        const offer = await pc.createOffer();
-        offer.sdp = mungeOpusFmtp(offer.sdp);
-        await pc.setLocalDescription(offer);
-        signaling.send({ description: pc.localDescription });
-      } catch (err) {
-        console.error('negotiation failed', err);
-      } finally {
-        makingOffer = false;
-      }
-    };
-
+    // signaling must exist before any pc handler below runs: 'negotiationneeded'
+    // and ICE candidates fire asynchronously and call signaling.send(), and if
+    // they fire before addTrack() below, the handlers must already be wired up
+    // too, or the event is lost and neither side ever creates an offer.
     signaling = useSignaling(roomId);
 
     let hasConnectedBefore = false;
@@ -134,6 +99,45 @@ export function useCall(roomId, forceRelay) {
         console.error('signal handling failed', err);
       }
     });
+
+    remoteStream.value = new MediaStream();
+    pc.ontrack = (event) => {
+      for (const track of event.streams[0]?.getTracks() ?? [event.track]) {
+        remoteStream.value.addTrack(track);
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      connectionState.value = pc.iceConnectionState;
+      if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        peerStatus.value = 'connected';
+      } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+        restartIce();
+      }
+    };
+
+    pc.onicecandidate = ({ candidate }) => {
+      if (candidate) signaling.send({ candidate });
+    };
+
+    pc.onnegotiationneeded = async () => {
+      try {
+        makingOffer = true;
+        const offer = await pc.createOffer();
+        offer.sdp = mungeOpusFmtp(offer.sdp);
+        await pc.setLocalDescription(offer);
+        signaling.send({ description: pc.localDescription });
+      } catch (err) {
+        console.error('negotiation failed', err);
+      } finally {
+        makingOffer = false;
+      }
+    };
+
+    for (const track of localStream.value.getTracks()) {
+      pc.addTrack(track, localStream.value);
+    }
+    await applyVideoBitrateLimit();
 
     startStatsPolling();
   }
