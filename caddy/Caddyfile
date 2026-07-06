@@ -1,0 +1,14 @@
+{$DOMAIN} {
+	encode gzip
+
+	@ws {
+		path /ws*
+	}
+	reverse_proxy @ws node-service:8080
+
+	reverse_proxy /api/* node-service:8080
+
+	root * /srv
+	file_server
+	try_files {path} /index.html
+}

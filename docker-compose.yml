@@ -1,0 +1,45 @@
+services:
+  coturn:
+    build: ./coturn
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      TURN_SECOND_IP: ${TURN_SECOND_IP}
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_REALM: ${TURN_REALM}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49200}
+    volumes:
+      # Let's Encrypt cert for TURN_DOMAIN (the second IP), kept separate
+      # from Caddy's own certs since it's a different hostname. See README.
+      - ./coturn/certs:/certs:ro
+
+  node-service:
+    build: ./node-service
+    restart: unless-stopped
+    environment:
+      PORT: 8080
+      TURN_SHARED_SECRET: ${TURN_SHARED_SECRET}
+      TURN_HOST: ${TURN_DOMAIN}
+    expose:
+      - "8080"
+
+  caddy:
+    build:
+      context: .
+      dockerfile: caddy/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - node-service
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
