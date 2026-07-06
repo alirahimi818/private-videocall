@@ -32,8 +32,10 @@ services:
     depends_on:
       - node-service
     ports:
-      - "80:80"
-      - "443:443"
+      # Bound to the primary IP only — the second IP's :443 belongs to
+      # coturn's TLS listener (see coturn service / README).
+      - "${PRIMARY_IP}:80:80"
+      - "${PRIMARY_IP}:443:443"
     environment:
       DOMAIN: ${DOMAIN}
     volumes:
