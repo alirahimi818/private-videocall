@@ -2,14 +2,16 @@
 import { ref, watch, onMounted } from 'vue';
 import { useCall } from '../composables/useCall.js';
 import { useI18n } from '../i18n/index.js';
+import { DOMAINS } from '../domains.js';
 
 const props = defineProps({ uuid: { type: String, required: true } });
 
 const { dir, t } = useI18n();
 const localVideo = ref(null);
 const remoteVideo = ref(null);
-const justCopied = ref(false);
 const startError = ref(null);
+const showLinkMenu = ref(false);
+const copiedDomain = ref('');
 
 const {
   localStream,
@@ -40,10 +42,13 @@ onMounted(async () => {
   }
 });
 
-function copyLink() {
-  navigator.clipboard.writeText(window.location.href);
-  justCopied.value = true;
-  setTimeout(() => (justCopied.value = false), 2000);
+function copyLinkFor(domain) {
+  navigator.clipboard.writeText(`https://${domain}${window.location.pathname}`);
+  copiedDomain.value = domain;
+  setTimeout(() => {
+    showLinkMenu.value = false;
+    copiedDomain.value = '';
+  }, 900);
 }
 
 function errorMessageKey(err) {
@@ -118,13 +123,29 @@ const statusKey = {
         <span>{{ isCameraOff ? t('cameraOn') : t('cameraOff') }}</span>
       </button>
 
-      <button @click="copyLink" :aria-label="t('copyLink')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-        <span>{{ justCopied ? t('linkCopied') : t('copyLink') }}</span>
-      </button>
+      <div class="copy-link-wrapper">
+        <div class="link-menu-backdrop" v-if="showLinkMenu" @click="showLinkMenu = false"></div>
+        <div class="link-menu" v-if="showLinkMenu">
+          <button
+            v-for="domain in DOMAINS"
+            :key="domain"
+            class="link-menu-item"
+            @click="copyLinkFor(domain)"
+          >
+            <svg v-if="copiedDomain === domain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            <span>{{ copiedDomain === domain ? t('linkCopied') : domain }}</span>
+          </button>
+        </div>
+        <button @click="showLinkMenu = !showLinkMenu" :aria-label="t('copyLink')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+          <span>{{ t('copyLink') }}</span>
+        </button>
+      </div>
 
       <button class="hangup" @click="hangup" :aria-label="t('hangup')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -249,5 +270,57 @@ const statusKey = {
 
 .controls button.hangup {
   background: #dc2626;
+}
+
+.copy-link-wrapper {
+  position: relative;
+}
+
+.link-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 16;
+}
+
+.link-menu {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem;
+  min-width: 15rem;
+  background: #222;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0.6rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 17;
+}
+
+.link-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.4rem;
+  border: none;
+  background: transparent;
+  color: white;
+  font-size: 0.85rem;
+  text-align: start;
+  direction: ltr;
+}
+
+.link-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.link-menu-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #4ade80;
 }
 </style>

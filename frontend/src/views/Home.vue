@@ -3,21 +3,16 @@ import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { createRoom } from '../composables/api.js';
 import { useI18n, localePath } from '../i18n/index.js';
-
-// Same app, reachable through different paths (direct / Cloudflare / Bunny)
-// — if one is blocked or throttled, another might not be. Shown so a user
-// stuck on a broken link can try the others without needing to be told the
-// URLs over chat.
-const ALTERNATE_DOMAINS = ['pvc.ali-rahimi.me', 'pvc.elido-srv.com', 'pvc-videocall.b-cdn.net'];
+import { DOMAINS } from '../domains.js';
 
 const router = useRouter();
 const { locale, dir, t } = useI18n();
 const isCreating = ref(false);
 const error = ref('');
 
-const otherDomains = computed(() =>
-  ALTERNATE_DOMAINS.filter((domain) => domain !== window.location.hostname),
-);
+// Shown so a user stuck on a broken/blocked link can try the others
+// themselves, instead of needing the URLs relayed over chat.
+const otherDomains = computed(() => DOMAINS.filter((domain) => domain !== window.location.hostname));
 
 async function startCall() {
   isCreating.value = true;
