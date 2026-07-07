@@ -2,6 +2,7 @@ import { ref, shallowRef, onBeforeUnmount } from 'vue';
 import { fetchIceServers, postDebugLog } from './api.js';
 import { useSignaling } from './useSignaling.js';
 import { mungeOpusFmtp } from './sdpMunge.js';
+import { playJoinChime, playLeaveChime } from './chime.js';
 
 const VIDEO_CONSTRAINTS = {
   width: { ideal: 640 },
@@ -314,6 +315,7 @@ export function useCall(roomId) {
 
     signaling.events.addEventListener('peer-left', () => {
       logEvent('peer-left');
+      playLeaveChime();
       peerStatus.value = 'peer-left';
       // The old pc was talking to a peer that's now completely gone —
       // start fresh so we're in a clean 'stable' state, ready to accept
@@ -329,6 +331,7 @@ export function useCall(roomId) {
 
     signaling.events.addEventListener('peer-joined', () => {
       logEvent('peer-joined');
+      playJoinChime();
       peerStatus.value = 'waiting';
     });
 
