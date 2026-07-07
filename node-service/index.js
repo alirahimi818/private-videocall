@@ -94,6 +94,7 @@ async function handleApi(req, res, pathname) {
       roomId,
       clientIp: getClientIp(req),
       userAgentHeader: req.headers['user-agent'],
+      host: req.headers.host,
       ...body,
     });
     res.writeHead(204);
@@ -148,7 +149,8 @@ wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.roomId = roomId;
   ws.clientIp = getClientIp(req);
-  console.log(`[room ${roomId}] peer joined (${room.peers.size}/2) ip=${ws.clientIp}`);
+  ws.host = req.headers.host;
+  console.log(`[room ${roomId}] peer joined (${room.peers.size}/2) ip=${ws.clientIp} host=${ws.host}`);
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -179,10 +181,12 @@ wss.on('connection', (ws, req) => {
     const otherPeer = [...room.peers].find((peer) => peer !== ws);
     if (otherPeer && otherPeer.readyState === otherPeer.OPEN) {
       otherPeer.send(raw);
-      console.log(`[room ${roomId}] relayed ${kind} ip=${ws.clientIp} -> ip=${otherPeer.clientIp}`);
+      console.log(
+        `[room ${roomId}] relayed ${kind} ip=${ws.clientIp} host=${ws.host} -> ip=${otherPeer.clientIp} host=${otherPeer.host}`,
+      );
     } else {
       console.log(
-        `[room ${roomId}] dropped ${kind} from ip=${ws.clientIp}: no live peer to relay to (readyState=${otherPeer?.readyState ?? 'none'})`,
+        `[room ${roomId}] dropped ${kind} from ip=${ws.clientIp} host=${ws.host}: no live peer to relay to (readyState=${otherPeer?.readyState ?? 'none'})`,
       );
     }
   });
@@ -194,7 +198,7 @@ wss.on('connection', (ws, req) => {
     // client-initiated close (1000/1001) — useful to tell apart when
     // diagnosing connection instability.
     console.log(
-      `[room ${roomId}] peer left (${room.peers.size}/2) ip=${ws.clientIp} code=${code} reason=${reason?.toString() || ''}`,
+      `[room ${roomId}] peer left (${room.peers.size}/2) ip=${ws.clientIp} host=${ws.host} code=${code} reason=${reason?.toString() || ''}`,
     );
     for (const peer of room.peers) {
       if (peer.readyState === peer.OPEN) {
@@ -208,7 +212,9 @@ wss.on('connection', (ws, req) => {
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.isAlive === false) {
-      console.log(`[room ${ws.roomId}] terminating unresponsive connection (missed heartbeat)`);
+      console.log(
+        `[room ${ws.roomId}] terminating unresponsive connection (missed heartbeat) ip=${ws.clientIp} host=${ws.host}`,
+      );
       ws.terminate();
       continue;
     }
