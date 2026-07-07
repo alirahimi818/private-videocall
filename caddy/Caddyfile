@@ -1,4 +1,9 @@
-{$DOMAIN} {
+# EDGE_DOMAIN is an optional second hostname (e.g. a domain proxied through
+# Cloudflare's CDN, orange-cloud) serving the exact same app — a fallback
+# ingress path for networks that block/throttle the primary DOMAIN directly.
+# Caddy manages a separate cert for it automatically. Leave EDGE_DOMAIN unset
+# to run with just DOMAIN.
+{$DOMAIN} {$EDGE_DOMAIN} {
 	encode gzip
 
 	# Caddy reorders directives by a fixed internal priority regardless of

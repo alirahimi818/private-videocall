@@ -5,3 +5,4 @@ coturn/certs/
 *.log
 logs/
 CLAUDE.md
+.wrangler/
