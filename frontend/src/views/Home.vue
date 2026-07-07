@@ -1,13 +1,23 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { createRoom } from '../composables/api.js';
 import { useI18n, localePath } from '../i18n/index.js';
+
+// Same app, reachable through different paths (direct / Cloudflare / Bunny)
+// — if one is blocked or throttled, another might not be. Shown so a user
+// stuck on a broken link can try the others without needing to be told the
+// URLs over chat.
+const ALTERNATE_DOMAINS = ['pvc.ali-rahimi.me', 'pvc.elido-srv.com', 'pvc-videocall.b-cdn.net'];
 
 const router = useRouter();
 const { locale, dir, t } = useI18n();
 const isCreating = ref(false);
 const error = ref('');
+
+const otherDomains = computed(() =>
+  ALTERNATE_DOMAINS.filter((domain) => domain !== window.location.hostname),
+);
 
 async function startCall() {
   isCreating.value = true;
@@ -44,6 +54,13 @@ async function startCall() {
       {{ isCreating ? t('creating') : t('startCall') }}
     </button>
     <p v-if="error" class="error">{{ error }}</p>
+
+    <div class="alt-domains" v-if="otherDomains.length">
+      <p>{{ t('altDomainsTitle') }}</p>
+      <a v-for="domain in otherDomains" :key="domain" :href="`https://${domain}${$route.fullPath}`">
+        {{ domain }}
+      </a>
+    </div>
   </main>
 </template>
 
@@ -103,5 +120,19 @@ async function startCall() {
 
 .error {
   color: #dc2626;
+}
+
+.alt-domains {
+  margin-top: 2rem;
+  font-size: 0.8rem;
+  opacity: 0.75;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.alt-domains a {
+  color: inherit;
 }
 </style>

@@ -5,6 +5,7 @@ export const en = {
   creating: 'Creating…',
   createError: 'Could not create a call. Try again.',
   switchLanguage: 'فارسی',
+  altDomainsTitle: 'Trouble connecting? Try one of these instead:',
 
   statusStarting: 'Setting up your camera…',
   statusWaiting: 'Waiting for the other person to join…',

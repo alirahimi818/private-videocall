@@ -5,6 +5,7 @@ export const fa = {
   creating: 'در حال ساخت…',
   createError: 'ساخت تماس ممکن نشد. دوباره امتحان کن.',
   switchLanguage: 'English',
+  altDomainsTitle: 'مشکل در اتصال داری؟ یکی از این‌ها رو امتحان کن:',
 
   statusStarting: 'در حال آماده‌سازی دوربین…',
   statusWaiting: 'در انتظار پیوستن طرف مقابل…',
