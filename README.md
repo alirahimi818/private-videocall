@@ -70,6 +70,30 @@ reachable directly; it can't go through Docker's NAT.
    `/call/:uuid` link with the other person. That link is the only secret
    — there's no login.
 
+## Fallback ingress via a CDN (optional)
+
+If the primary `DOMAIN`/IP gets blocked or throttled on the restrictive side,
+set `EDGE_DOMAIN` to a second hostname proxied through a CDN (e.g.
+Cloudflare, orange-cloud on) pointed at `PRIMARY_IP`. Caddy serves the exact
+same app on both hostnames and manages a separate cert for each — a room
+link works interchangeably from either one, since both reach the same
+node-service backend. TURN media relay is unaffected regardless of which
+link loaded the page; it always goes straight to `TURN_DOMAIN`, not through
+the CDN (CDNs proxy HTTP(S)/WebSocket, not the TURN protocol).
+
+Notes if using Cloudflare specifically:
+- SSL/TLS mode must be **Full** or **Full (strict)** so Cloudflare connects
+  to the origin over real HTTPS.
+- The TLS-ALPN-01 ACME challenge can't work behind a proxied (orange-cloud)
+  record, since Cloudflare terminates TLS at the edge — Caddy automatically
+  falls back to HTTP-01 instead, and Cloudflare passes `/.well-known/acme-challenge/`
+  through to the origin, so no extra configuration is needed.
+- A Cloudflare *Worker* as a reverse proxy was tried first instead of a
+  proxied DNS record, but hit an unrelated account-level Cloudflare bug
+  (new-account Workers execution failing outright, even for an empty
+  Hello World worker). That code is kept in `worker/` for whenever that's
+  resolved; it's not required for the DNS-proxy approach above.
+
 ## Testing TURN
 
 From a machine outside the VPS (ideally simulating the restrictive side):
@@ -107,6 +131,8 @@ node-service/   REST API + WebSocket signaling (plain ws, no framework)
 frontend/       Vue 3 SPA (Vite)
 caddy/          Caddyfile + Dockerfile (builds the SPA, serves it, proxies /api and /ws)
 coturn/         TURN server config template + entrypoint
+worker/         Cloudflare Worker reverse-proxy (currently unused — see
+                "Fallback ingress via a CDN" above)
 docker-compose.yml
 .env.example
 ```
