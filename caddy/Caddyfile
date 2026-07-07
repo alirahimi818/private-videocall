@@ -4,10 +4,6 @@
 # Caddy manages a separate cert for it automatically. Leave EDGE_DOMAIN unset
 # to run with just DOMAIN.
 {$DOMAIN} {$EDGE_DOMAIN} {
-	log {
-		output stdout
-		format json
-	}
 	encode gzip
 
 	# Caddy reorders directives by a fixed internal priority regardless of
