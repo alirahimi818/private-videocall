@@ -57,6 +57,13 @@ function withTimeout(promise, ms, label) {
   ]);
 }
 
+// ?debugQuality=poor (or fair/good) on the call URL forces the quality
+// classification below to that value, regardless of real stats — DevTools'
+// network throttling doesn't touch WebRTC's media traffic (it's a separate
+// path from the fetch/XHR traffic it actually throttles), so there's no
+// way to trigger the real 'poor' path in a browser tab without this.
+const DEBUG_QUALITY_OVERRIDE = new URLSearchParams(window.location.search).get('debugQuality');
+
 export function useCall(roomId) {
   const localStream = shallowRef(null);
   const remoteStream = shallowRef(null);
@@ -524,7 +531,7 @@ export function useCall(roomId) {
       // trigger audio-only before the call ever really started.
       if (connectionState.value !== 'connected' && connectionState.value !== 'completed') return;
 
-      const quality = classifyQuality({ packetLoss, audioPacketLoss, rtt });
+      const quality = DEBUG_QUALITY_OVERRIDE || classifyQuality({ packetLoss, audioPacketLoss, rtt });
       connectionQuality.value = quality;
 
       if (quality === 'poor') {
