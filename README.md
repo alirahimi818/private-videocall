@@ -94,6 +94,22 @@ Notes if using Cloudflare specifically:
   Hello World worker). That code is kept in `worker/` for whenever that's
   resolved; it's not required for the DNS-proxy approach above.
 
+### BunnyCDN as an alternative fallback
+
+A second, independent CDN fallback: create a BunnyCDN Pull Zone with
+**Origin URL** set to `https://DOMAIN` (e.g. `https://pvc.ali-rahimi.me`) —
+Bunny assigns a free `<zone-name>.b-cdn.net` hostname with auto-SSL
+immediately, no custom domain or DNS record needed. `EnableWebSockets` is on
+by default. Because Bunny forwards the Host header matching the Origin URL,
+**no Caddy/EDGE_DOMAIN change is needed** — Caddy already recognizes that
+hostname. Create it via the API (dashboard works too):
+
+```sh
+curl -X POST https://api.bunny.net/pullzone \
+  -H "AccessKey: $BUNNY_API_KEY" -H "Content-Type: application/json" \
+  -d '{"Name": "my-zone-name", "OriginUrl": "https://pvc.ali-rahimi.me", "Type": 0}'
+```
+
 ## Testing TURN
 
 From a machine outside the VPS (ideally simulating the restrictive side):
