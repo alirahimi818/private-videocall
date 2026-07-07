@@ -27,6 +27,24 @@ function getClientIp(req) {
   return req.socket.remoteAddress;
 }
 
+// With three ingress paths (direct domain, Cloudflare, BunnyCDN) all
+// pointing at this same backend, tells which one a given request/connection
+// actually came through — needed to know which fallback link is working for
+// a given user. Host header alone isn't reliable: Bunny's Pull Zone rewrites
+// it to match its configured Origin URL (our direct domain) rather than
+// forwarding the hostname the visitor actually used, but it adds its own
+// 'cdn-host' header with that original value. Cloudflare forwards Host
+// as-is but adds 'cf-ray', which we use as its signal instead.
+function getIngress(req) {
+  if (req.headers['cf-ray']) {
+    return { via: 'cloudflare', edgeHost: req.headers.host };
+  }
+  if (req.headers['cdn-host']) {
+    return { via: 'bunny', edgeHost: req.headers['cdn-host'] };
+  }
+  return { via: 'direct', edgeHost: req.headers.host };
+}
+
 function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
@@ -94,8 +112,7 @@ async function handleApi(req, res, pathname) {
       roomId,
       clientIp: getClientIp(req),
       userAgentHeader: req.headers['user-agent'],
-      host: req.headers.host,
-      allHeaders: req.headers, // TEMP: figuring out how to tell CDNs apart, remove after
+      ...getIngress(req),
       ...body,
     });
     res.writeHead(204);
@@ -150,8 +167,8 @@ wss.on('connection', (ws, req) => {
   ws.isAlive = true;
   ws.roomId = roomId;
   ws.clientIp = getClientIp(req);
-  ws.host = req.headers.host;
-  console.log(`[room ${roomId}] peer joined (${room.peers.size}/2) ip=${ws.clientIp} host=${ws.host}`);
+  ({ via: ws.via, edgeHost: ws.host } = getIngress(req));
+  console.log(`[room ${roomId}] peer joined (${room.peers.size}/2) ip=${ws.clientIp} via=${ws.via} host=${ws.host}`);
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -183,11 +200,11 @@ wss.on('connection', (ws, req) => {
     if (otherPeer && otherPeer.readyState === otherPeer.OPEN) {
       otherPeer.send(raw);
       console.log(
-        `[room ${roomId}] relayed ${kind} ip=${ws.clientIp} host=${ws.host} -> ip=${otherPeer.clientIp} host=${otherPeer.host}`,
+        `[room ${roomId}] relayed ${kind} ip=${ws.clientIp} via=${ws.via} host=${ws.host} -> ip=${otherPeer.clientIp} via=${otherPeer.via} host=${otherPeer.host}`,
       );
     } else {
       console.log(
-        `[room ${roomId}] dropped ${kind} from ip=${ws.clientIp} host=${ws.host}: no live peer to relay to (readyState=${otherPeer?.readyState ?? 'none'})`,
+        `[room ${roomId}] dropped ${kind} from ip=${ws.clientIp} via=${ws.via} host=${ws.host}: no live peer to relay to (readyState=${otherPeer?.readyState ?? 'none'})`,
       );
     }
   });
@@ -199,7 +216,7 @@ wss.on('connection', (ws, req) => {
     // client-initiated close (1000/1001) — useful to tell apart when
     // diagnosing connection instability.
     console.log(
-      `[room ${roomId}] peer left (${room.peers.size}/2) ip=${ws.clientIp} host=${ws.host} code=${code} reason=${reason?.toString() || ''}`,
+      `[room ${roomId}] peer left (${room.peers.size}/2) ip=${ws.clientIp} via=${ws.via} host=${ws.host} code=${code} reason=${reason?.toString() || ''}`,
     );
     for (const peer of room.peers) {
       if (peer.readyState === peer.OPEN) {
@@ -214,7 +231,7 @@ const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
     if (ws.isAlive === false) {
       console.log(
-        `[room ${ws.roomId}] terminating unresponsive connection (missed heartbeat) ip=${ws.clientIp} host=${ws.host}`,
+        `[room ${ws.roomId}] terminating unresponsive connection (missed heartbeat) ip=${ws.clientIp} via=${ws.via} host=${ws.host}`,
       );
       ws.terminate();
       continue;
