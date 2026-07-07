@@ -190,7 +190,12 @@ const statusKey = {
 .remote-video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain, not cover: the two sides can be wildly different aspect
+     ratios (a laptop's wide webcam vs. a phone's tall portrait camera) —
+     cropping to fill the screen can zoom in far enough that only the
+     other person's head is visible. Showing the whole frame (with
+     letterboxing where needed) matters more than filling the screen. */
+  object-fit: contain;
   background: #000;
 }
 
@@ -236,6 +241,11 @@ const statusKey = {
   border: 1px solid rgba(255, 255, 255, 0.3);
   object-fit: cover;
   z-index: 10;
+  /* Mirror the self-preview only — people expect to see themselves like in
+     a mirror. This is purely a local display flip; the actual track sent
+     to the other person is untouched, so any text/writing you hold up
+     still reads correctly on their end. */
+  transform: scaleX(-1);
 }
 
 .status-banner {

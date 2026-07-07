@@ -7,6 +7,11 @@ const VIDEO_CONSTRAINTS = {
   width: { ideal: 640 },
   height: { ideal: 360 },
   frameRate: { ideal: 24, max: 24 },
+  // Nudges phone cameras (which otherwise often default to their sensor's
+  // native portrait shape) toward the same landscape-ish shape as a laptop
+  // webcam — reduces (doesn't eliminate) the aspect-ratio mismatch that
+  // makes object-fit: contain add large letterbox bars on one side.
+  aspectRatio: { ideal: 16 / 9 },
 };
 
 const STATS_INTERVAL_MS = 2500;
