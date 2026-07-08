@@ -59,6 +59,24 @@ function copyLinkFor(domain) {
   }, 900);
 }
 
+// A full reload, not just re-running start(): stuck WS/ICE state, a stale
+// bundle from before a deploy, or a flaky CDN edge are all easier to escape
+// by starting completely clean than by trying to detect and recover from
+// each case individually.
+async function hardRefresh() {
+  try {
+    localStorage.clear();
+    sessionStorage.clear();
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((key) => caches.delete(key)));
+    }
+  } catch {
+    // best-effort — reload regardless of whether clearing succeeded
+  }
+  window.location.reload();
+}
+
 function errorMessageKey(err) {
   if (err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError') return 'errorPermission';
   if (String(err?.message).includes('timed out')) return 'errorTimeout';
@@ -141,6 +159,14 @@ const statusKey = {
           <line x1="1" y1="1" x2="23" y2="23" />
         </svg>
         <span>{{ isCameraOff ? t('cameraOn') : t('cameraOff') }}</span>
+      </button>
+
+      <button class="refresh" @click="hardRefresh" :aria-label="t('reload')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10" />
+          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+        </svg>
+        <span>{{ t('reload') }}</span>
       </button>
 
       <div class="copy-link-wrapper">
@@ -327,6 +353,10 @@ const statusKey = {
 
 .controls button.hangup {
   background: #dc2626;
+}
+
+.controls button.refresh {
+  background: #2563eb;
 }
 
 .copy-link-wrapper {
