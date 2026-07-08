@@ -9,7 +9,10 @@ import { appendDebugLog } from './debugLog.js';
 const PORT = process.env.PORT || 8080;
 const SHARED_SECRET = process.env.TURN_SHARED_SECRET;
 const TURN_HOST = process.env.TURN_HOST;
-const HEARTBEAT_INTERVAL_MS = 30_000;
+// Kept short so a connection silently killed by DPI/network drop (no close
+// frame, just packets vanishing) gets evicted quickly — a stale slot blocks
+// the real peer's reconnect with "room full" until we notice it's dead.
+const HEARTBEAT_INTERVAL_MS = 8_000;
 const MAX_DEBUG_BODY_BYTES = 4096;
 
 if (!SHARED_SECRET) {
@@ -240,6 +243,10 @@ const heartbeat = setInterval(() => {
     }
     ws.isAlive = false;
     ws.ping();
+    // Protocol-level pings aren't visible to browser JS, so also send an
+    // app-level one — the client uses it as its own liveness signal to
+    // detect a dead socket instead of waiting on the OS's TCP timeout.
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'ping' }));
   }
 }, HEARTBEAT_INTERVAL_MS);
 
