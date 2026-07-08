@@ -33,5 +33,7 @@ export const en = {
   cameraOn: 'Camera on',
   copyLink: 'Copy link',
   linkCopied: 'Link copied',
+  rotateToPortrait: 'Switch to portrait',
+  rotateToLandscape: 'Switch to landscape',
   hangup: 'Hang up',
 };

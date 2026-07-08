@@ -33,5 +33,7 @@ export const fa = {
   cameraOn: 'روشن‌کردن دوربین',
   copyLink: 'کپی لینک',
   linkCopied: 'لینک کپی شد',
+  rotateToPortrait: 'حالت عمودی',
+  rotateToLandscape: 'حالت افقی',
   hangup: 'پایان تماس',
 };

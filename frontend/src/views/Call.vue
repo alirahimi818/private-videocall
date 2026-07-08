@@ -22,9 +22,11 @@ const {
   wsReconnectAttempt,
   connectionQuality,
   videoAutoPaused,
+  isPortraitVideo,
   start,
   toggleMute,
   toggleCamera,
+  toggleVideoOrientation,
   hangup,
 } = useCall(props.uuid);
 
@@ -106,7 +108,30 @@ const statusKey = {
     </div>
 
     <video ref="remoteVideo" class="remote-video" autoplay playsinline></video>
-    <video ref="localVideo" class="local-video" autoplay playsinline muted></video>
+
+    <div class="local-video-wrapper">
+      <video
+        ref="localVideo"
+        class="local-video"
+        :style="{ aspectRatio: isPortraitVideo ? '9 / 16' : '16 / 9' }"
+        autoplay
+        playsinline
+        muted
+      ></video>
+      <button
+        class="orientation-toggle"
+        @click="toggleVideoOrientation"
+        :aria-label="isPortraitVideo ? t('rotateToLandscape') : t('rotateToPortrait')"
+        :title="isPortraitVideo ? t('rotateToLandscape') : t('rotateToPortrait')"
+      >
+        <svg v-if="!isPortraitVideo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="6" width="20" height="12" rx="2" />
+        </svg>
+        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2" width="12" height="20" rx="2" />
+        </svg>
+      </button>
+    </div>
 
     <div class="status-banner" v-if="!startError && peerStatus !== 'connected'">
       {{
@@ -257,21 +282,47 @@ const statusKey = {
   height: 18px;
 }
 
-.local-video {
+.local-video-wrapper {
   position: absolute;
   top: 0.75rem;
   inset-inline-end: 0.75rem;
   width: 30vw;
   max-width: 160px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.local-video {
+  width: 100%;
   border-radius: 0.5rem;
   border: 1px solid rgba(255, 255, 255, 0.3);
   object-fit: cover;
-  z-index: 10;
   /* Mirror the self-preview only — people expect to see themselves like in
      a mirror. This is purely a local display flip; the actual track sent
      to the other person is untouched, so any text/writing you hold up
      still reads correctly on their end. */
   transform: scaleX(-1);
+}
+
+.orientation-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
+}
+
+.orientation-toggle svg {
+  width: 15px;
+  height: 15px;
 }
 
 .status-banner {

@@ -123,6 +123,7 @@ export function useCall(roomId) {
   const wsReconnectAttempt = ref(0);
   const connectionQuality = ref('good'); // good | fair | poor — only meaningful once connected
   const videoAutoPaused = ref(false);
+  const isPortraitVideo = ref(false);
   const stats = ref({
     candidateType: null,
     protocol: null,
@@ -426,8 +427,13 @@ export function useCall(roomId) {
   async function applyVideoQualityTier() {
     const bitrate =
       videoQualityTier === 'high' ? VIDEO_BITRATE_HIGH : videoQualityTier === 'low' ? VIDEO_BITRATE_LOW : VIDEO_BITRATE_VERY_LOW;
-    const capture =
+    const baseCapture =
       videoQualityTier === 'high' ? CAPTURE_HIGH : videoQualityTier === 'low' ? CAPTURE_LOW : CAPTURE_VERY_LOW;
+    // Swapped, not a separate constant per tier — portrait is the same
+    // pixel budget turned 90 degrees, not a different quality level.
+    const capture = isPortraitVideo.value
+      ? { width: baseCapture.height, height: baseCapture.width }
+      : baseCapture;
 
     if (videoSender) {
       try {
@@ -447,7 +453,7 @@ export function useCall(roomId) {
         await localVideoTrack.applyConstraints({
           width: { ideal: capture.width },
           height: { ideal: capture.height },
-          aspectRatio: { ideal: 16 / 9 },
+          aspectRatio: { ideal: capture.width / capture.height },
         });
       } catch (err) {
         logEvent('error', { context: 'video-resolution', message: String(err) });
@@ -455,6 +461,16 @@ export function useCall(roomId) {
     }
 
     logEvent('video-quality-tier', { tier: videoQualityTier, bitrate, capture });
+  }
+
+  // Manual override, independent of the automatic quality tier above — lets
+  // whoever's on a laptop (wide camera) send a portrait-shaped frame so
+  // someone watching on a phone gets a frame that actually fills their
+  // screen, instead of relying on remote's object-fit: contain letterboxing.
+  async function toggleVideoOrientation() {
+    isPortraitVideo.value = !isPortraitVideo.value;
+    await applyVideoQualityTier();
+    logEvent('video-orientation-toggled', { isPortrait: isPortraitVideo.value });
   }
 
   // Applies the current audioBufferMode to every receiver right now — called
@@ -778,9 +794,11 @@ export function useCall(roomId) {
     wsReconnectAttempt,
     connectionQuality,
     videoAutoPaused,
+    isPortraitVideo,
     start,
     toggleMute,
     toggleCamera,
+    toggleVideoOrientation,
     hangup,
   };
 }
