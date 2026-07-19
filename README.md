@@ -39,6 +39,33 @@ Second IP:
 coturn runs with `network_mode: host` because the relay port range must be
 reachable directly; it can't go through Docker's NAT.
 
+**The second IP must be persisted in the VPS's own network config, not just
+added with `ip addr add`.** Some providers (Hetzner included) don't put a
+secondary IP into the cloud-init-managed netplan config automatically when
+you add it through their control panel/manually — it works until the next
+`systemd-networkd` restart (an unattended-upgrade can trigger this) or reboot
+silently drops it, which crash-loops coturn (`bind: Address not available`)
+with no obvious symptom on the Caddy/SPA side, since that's a separate IP.
+Add it as its own netplan file so cloud-init regenerating `50-cloud-init.yaml`
+on a future boot can't wipe it:
+
+```yaml
+# /etc/netplan/60-secondary-ip.yaml (mode 600, same owner as the other netplan files)
+network:
+  version: 2
+  ethernets:
+    eth0:
+      match:
+        macaddress: "<eth0's MAC — check with `ip link`>"
+      set-name: "eth0"
+      addresses:
+        - "<second IP>/32"
+```
+
+Then `netplan apply` and confirm both IPs are still there with
+`ip -4 addr show eth0`. Worth testing that it survives `systemctl restart
+systemd-networkd` before trusting it across a real reboot.
+
 ## Setup
 
 1. Clone this repo onto the VPS.
