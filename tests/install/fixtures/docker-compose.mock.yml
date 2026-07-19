@@ -1,0 +1,7 @@
+services:
+  coturn:
+    image: busybox
+  node-service:
+    image: busybox
+  caddy:
+    image: busybox

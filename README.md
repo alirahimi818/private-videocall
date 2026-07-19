@@ -9,6 +9,29 @@ service (REST API + WebSocket signaling), and Caddy (TLS + static SPA +
 reverse proxy). No database — room state lives in memory and is dropped on
 restart.
 
+## Quick install
+
+On a fresh Debian/Ubuntu VPS, with DNS already pointed (see below):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/alirahimi818/private-videocall/main/install.sh | bash
+```
+
+This is a fully automated, interactive installer — system update,
+dependencies (Docker, certbot, ufw, [gum](https://github.com/charmbracelet/gum)
+for the terminal UI), clones the repo to `/opt/private-videocall`, walks you
+through the `.env` values below, sets up the second-IP netplan persistence
+and firewall rules, issues the TURN certificate and its renewal hook, then
+builds and starts everything. It's safe to re-run the same command later —
+it detects an existing install and opens a management menu (update, view
+logs, restart, renew cert, edit config, full reinstall) instead of
+reinstalling. See `docs/VERIFICATION.md` for a post-install checklist and
+`scripts/install/` for how it's put together if you want to read/audit it
+first (it's plain modular bash, no compiled binary).
+
+The rest of this section documents what the installer automates, for manual
+setup or if you're on a different OS.
+
 ## Requirements
 
 - A VPS with **two public IPv4 addresses**. Caddy needs 443 on the primary
@@ -66,7 +89,10 @@ Then `netplan apply` and confirm both IPs are still there with
 `ip -4 addr show eth0`. Worth testing that it survives `systemctl restart
 systemd-networkd` before trusting it across a real reboot.
 
-## Setup
+## Manual setup
+
+(Skip this if you used the one-line installer above — it does all of this
+for you.)
 
 1. Clone this repo onto the VPS.
 2. Copy `.env.example` to `.env` and fill in both domains, the second IP,
@@ -176,6 +202,13 @@ caddy/          Caddyfile + Dockerfile (builds the SPA, serves it, proxies /api 
 coturn/         TURN server config template + entrypoint
 worker/         Cloudflare Worker reverse-proxy (currently unused — see
                 "Fallback ingress via a CDN" above)
+install.sh      One-line installer entry point (curl | bash target)
+scripts/
+  install/      Modular installer: main.sh, lib/*.sh, modules/00-99*.sh
+  manage.sh     Post-install management menu (re-run entry point)
+  renew-turn-cert.sh  certbot deploy-hook: copies renewed certs, restarts coturn
+tests/install/  shellcheck/syntax-check + fixture-based unit tests for the installer
+docs/VERIFICATION.md  Post-install checklist for real-VPS-only steps
 docker-compose.yml
 .env.example
 ```
